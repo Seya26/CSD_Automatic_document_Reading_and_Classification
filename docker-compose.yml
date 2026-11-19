@@ -1,0 +1,61 @@
+# review   -> Streamlit app (human review + ground-truth annotation), http://localhost:8501
+# pipeline -> one-shot commands, run with:  docker compose run --rm pipeline <command>
+#             e.g.  docker compose run --rm pipeline preprocess
+# Variables come from .env (copy .env.example); compose reads it automatically.
+
+x-albo-env: &albo-env
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+  OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
+  ALBO_CONF_THRESHOLD: ${ALBO_CONF_THRESHOLD:-0.85}
+  ALBO_PSEUDONYMISE: ${ALBO_PSEUDONYMISE:-1}
+  ALBO_DATA_DIR: /app/data
+  ALBO_CONFIG_DIR: /app/config
+
+x-albo-volumes: &albo-volumes
+  - ./data:/app/data        # SQLite database + raw PDFs, shared by both services
+  - ./config:/app/config    # municipalities.yaml, fewshot.json: editable without rebuilding
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  review:
+    build: .
+    image: albo-pipeline
+    # Bound to localhost on purpose: the app has no login and shows the documents' text.
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment: *albo-env
+    volumes: *albo-volumes
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  pipeline:
+    build: .
+    image: albo-pipeline
+    profiles: ["tools"]          # not started by `docker compose up`
+    entrypoint: ["python", "-m", "albo"]
+    environment: *albo-env
+    volumes: *albo-volumes
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  ollama:

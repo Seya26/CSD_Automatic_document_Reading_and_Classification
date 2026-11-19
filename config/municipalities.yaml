@@ -1,0 +1,16 @@
+# One entry per municipality notice board (albo pretorio). Gantt task 2 / 15.
+# `generic_html` reads an HTML listing with CSS selectors. EVERYTHING BELOW IS A PLACEHOLDER:
+# open the real notice board, inspect the HTML and fill in the selectors.
+# For boards that need a JSON API or a form, add an adapter class in src/albo/ingestion/adapters.py.
+municipalities:
+  - slug: comune-a
+    name: "Comune di A"            # must match the municipality written in the acts' header
+    adapter: generic_html
+    list_url: "https://www.example.it/albo-pretorio?page={page}"
+    first_page: 1
+    max_pages: 5
+    row_selector: "table.albo tbody tr"        # one element per published act
+    link_selector: "a[href$='.pdf']"           # link to the PDF, inside the row
+    declared_type_selector: "td.tipo"          # type label shown by the board (optional)
+    date_selector: "td.data-pubblicazione"     # publication date (optional)
+    title_selector: "td.oggetto"               # optional
