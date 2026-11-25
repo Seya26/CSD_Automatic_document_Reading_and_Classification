@@ -1,3 +1,5 @@
+from datetime import date
+
 from albo.schema import LLMExtraction
 from albo.validator import canonicalize, validate
 
@@ -94,3 +96,33 @@ def test_evidence_with_altered_content_is_caught():
     altered = good(subject=field("Approvazione del piano triennale delle opere 2026-2028",
                                  "Approvazione del piano triennale delle opere 2026-2028"))
     assert ("subject", "evidence_not_found") in codes(run(altered))
+
+
+def test_value_must_be_in_its_evidence():
+    # the excerpt exists in the text, but says 45, not 54
+    result = run(good(number=field("54", "N. 45 del 12/03/2025")))
+    assert ("number", "value_not_in_evidence") in codes(result)
+    # same for a date that the excerpt does not contain
+    result = run(good(date=field("13/03/2025", "N. 45 del 12/03/2025")))
+    assert ("date", "value_not_in_evidence") in codes(result)
+
+
+def test_subject_shorter_than_evidence_is_still_supported():
+    result = run(good(subject=field("Approvazione del piano triennale delle opere pubbliche 2025-2027.",
+                                    "Approvazione del piano triennale delle opere pubbliche")))
+    assert ("subject", "value_not_in_evidence") not in codes(result)
+
+
+def test_date_after_publication_and_in_future():
+    assert ("date", "date_after_publication") in codes(run(good(), published_at="2025-01-10"))
+    assert ("date", "date_after_publication") not in codes(run(good(), published_at="2025-06-01"))
+    assert ("date", "date_in_future") in codes(run(good(), today=date(2024, 1, 1)))
+
+
+def test_date_from_cited_act_is_flagged():
+    text_evidence = "Vista la deliberazione n. 12 del 21/02/2025"
+    extraction = good(date=field("21/02/2025", text_evidence))
+    result = validate(extraction, TEXT + "\n" + text_evidence, municipality="Camerino",
+                      declared_type=None, conf_threshold=0.85)
+    assert ("date", "date_from_cited_act") in codes(result)
+    assert ("date", "date_from_cited_act") not in codes(run(good()))

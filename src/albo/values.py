@@ -40,6 +40,39 @@ def norm_number(value: str | None) -> str:
     return "/".join(str(int(p)) for p in parts if p)
 
 
+def _iso(y: int, mo: int, d: int) -> str | None:
+    if y < 100:
+        y += 2000
+    if not 1990 <= y <= 2100:
+        return None
+    try:
+        return date(y, mo, d).isoformat()
+    except ValueError:
+        return None
+
+
+def all_dates(value: str | None) -> list[str]:
+    """Every parsable date in the text, as ISO strings, in order of appearance."""
+    if not value:
+        return []
+    text = unicodedata.normalize("NFKC", value)
+    found: list[tuple[int, str | None]] = []
+    for m in _ISO.finditer(text):
+        y, mo, d = (int(g) for g in m.groups())
+        found.append((m.start(), _iso(y, mo, d)))
+    for m in _NUMERIC.finditer(text):
+        d, mo, y = (int(g) for g in m.groups())
+        found.append((m.start(), _iso(y, mo, d)))
+    for m in _WORDS.finditer(text):
+        found.append((m.start(), _iso(int(m.group(3)), _MONTHS.get(m.group(2).casefold(), 0), int(m.group(1)))))
+    return [iso for _, iso in sorted(found, key=lambda x: x[0]) if iso]
+
+
+def number_tokens(value: str | None) -> set[int]:
+    """Every integer written in the text ('N. 045 del 12/03/2025' -> {45, 12, 3, 2025})."""
+    return {int(t) for t in re.findall(r"\d+", value or "")}
+
+
 def parse_date(value: str | None) -> str | None:
     """Return an ISO date (YYYY-MM-DD) for the common Italian formats, else None."""
     if not value:

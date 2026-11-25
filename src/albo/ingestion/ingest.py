@@ -10,6 +10,7 @@ from ..config import Settings
 from ..db import Database
 from ..values import parse_date
 from .adapters import build_adapter
+from .p7m import extract_p7m, is_pdf
 
 
 def slugify(name: str) -> str:
@@ -19,9 +20,12 @@ def slugify(name: str) -> str:
 def ingest_bytes(db: Database, settings: Settings, data: bytes, *, municipality: str,
                  declared_type: str | None = None, published_at: str | None = None,
                  source_url: str | None = None) -> tuple[str, bool]:
-    """Store one PDF. Returns (doc_id, created); created is False for a duplicate."""
-    if not data.startswith(b"%PDF"):
-        raise ValueError("Not a PDF file")
+    """Store one PDF, or the PDF inside a signed .p7m. Returns (doc_id, created);
+    created is False for a duplicate. The hash is computed on the PDF, so the same
+    act published both as PDF and as P7M is stored once."""
+    unwrapped = not is_pdf(data)
+    if unwrapped:
+        data = extract_p7m(data)  # ValueError if it is neither a PDF nor a P7M containing one
     sha = hashlib.sha256(data).hexdigest()
     doc_id = sha[:12]
     folder = settings.raw_dir / slugify(municipality)
@@ -33,7 +37,7 @@ def ingest_bytes(db: Database, settings: Settings, data: bytes, *, municipality:
     )
     if created:
         path.write_bytes(data)
-        db.log(doc_id, "ingest", "ok", source_url or "local")
+        db.log(doc_id, "ingest", "ok", (source_url or "local") + (" (extracted from P7M)" if unwrapped else ""))
     return doc_id, created
 
 
@@ -46,7 +50,7 @@ def ingest_local(db: Database, settings: Settings, folder: Path, municipality: s
         with meta_file.open(newline="", encoding="utf-8") as fh:
             meta = {row["filename"]: row for row in csv.DictReader(fh)}
     counts = {"added": 0, "duplicates": 0, "skipped": 0}
-    for pdf in sorted(folder.glob("*.pdf")):
+    for pdf in sorted(p for p in folder.iterdir() if p.suffix.lower() in {".pdf", ".p7m"}):
         row = meta.get(pdf.name, {})
         published = row.get("published_at") or None
         try:
