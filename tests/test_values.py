@@ -35,3 +35,10 @@ def test_norm_number(raw, expected):
 
 def test_norm_municipality_ignores_prefix_and_case():
     assert norm_municipality("COMUNE DI CAMERINO") == norm_municipality("Camerino") == "camerino"
+
+
+def test_all_dates_and_number_tokens():
+    from albo.values import all_dates, number_tokens
+    assert all_dates("N. 7 del 10/01/2025, pubblicata il 15 gennaio 2025") == ["2025-01-10", "2025-01-15"]
+    assert all_dates("nessuna data") == []
+    assert number_tokens("N. 045 del 12/03/2025") == {45, 12, 3, 2025}

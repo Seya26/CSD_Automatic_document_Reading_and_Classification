@@ -35,6 +35,7 @@ def classify_document(db: Database, settings: Settings, client: LLMClient, doc_i
     validation = validate(
         extraction, current["text"], municipality=doc["municipality"],
         declared_type=doc["declared_type"], conf_threshold=settings.conf_threshold,
+        published_at=doc["published_at"],
     )
     status = "auto_accepted" if validation.ok else "needs_review"
     record = OutputRecord(

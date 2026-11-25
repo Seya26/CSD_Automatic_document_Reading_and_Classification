@@ -22,6 +22,12 @@ _DECLARED_KEYWORDS = (
     ("deliber", DocType.DELIBERATION),
     ("determin", DocType.DETERMINATION),
     ("ordinanz", DocType.ORDINANCE),
+    # labels of documents outside the three core types
+    ("avvis", DocType.OTHER),
+    ("bando", DocType.OTHER),
+    ("bandi", DocType.OTHER),
+    ("decret", DocType.OTHER),
+    ("graduator", DocType.OTHER),
 )
 
 
