@@ -2,11 +2,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+logger = logging.getLogger("albo.pipeline")
+
+_LOG_LEVELS = {"error": logging.ERROR, "warning": logging.WARNING, "skipped": logging.WARNING}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -184,6 +189,8 @@ class Database:
             "INSERT INTO processing_log (doc_id, stage, status, message, created_at) VALUES (?,?,?,?,?)",
             (doc_id, stage, status, message, now()),
         )
+        logger.log(_LOG_LEVELS.get(status, logging.INFO), "%-10s %-12s %-13s %s",
+                   stage, doc_id or "-", status, message)
 
     # ---- predictions -----------------------------------------------
     def add_prediction(self, *, doc_id: str, text_version: int, model: str, prompt_version: str,

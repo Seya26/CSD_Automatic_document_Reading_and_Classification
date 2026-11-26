@@ -4,11 +4,29 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
+import os
 import sys
 from pathlib import Path
 
 from .config import get_settings
 from .db import Database
+
+
+def setup_logging(verbosity: int = 0) -> None:
+    """Progress logs on stderr (results stay on stdout). -v = DEBUG, -q = warnings only;
+    ALBO_LOG_LEVEL (DEBUG, INFO, WARNING, ...) sets the default."""
+    if verbosity > 0:
+        level = logging.DEBUG
+    elif verbosity < 0:
+        level = logging.WARNING
+    else:
+        level = getattr(logging, os.environ.get("ALBO_LOG_LEVEL", "INFO").upper(), logging.INFO)
+    logging.basicConfig(
+        level=logging.WARNING, stream=sys.stderr,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S",
+    )
+    logging.getLogger("albo").setLevel(level)
 
 
 def _db() -> tuple[Database, "object"]:
@@ -99,6 +117,10 @@ def cmd_export_ground_truth(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="albo", description=__doc__)
+    parser.add_argument("-v", "--verbose", action="store_const", const=1, default=0, dest="verbosity",
+                        help="debug logs (per-page extraction, raw model output)")
+    parser.add_argument("-q", "--quiet", action="store_const", const=-1, dest="verbosity",
+                        help="only warnings and errors")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("stats", help="counts per pipeline stage").set_defaults(func=cmd_stats)
@@ -142,6 +164,7 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(func=cmd_export_ground_truth)
 
     args = parser.parse_args(argv)
+    setup_logging(args.verbosity)
     try:
         args.func(args)
     except (RuntimeError, KeyError, FileNotFoundError) as exc:

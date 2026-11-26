@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import logging
 import re
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from ..db import Database
 from ..values import parse_date
 from .adapters import build_adapter
 from .p7m import extract_p7m, is_pdf
+
+logger = logging.getLogger(__name__)
 
 
 def slugify(name: str) -> str:
@@ -51,6 +54,7 @@ def ingest_local(db: Database, settings: Settings, folder: Path, municipality: s
             meta = {row["filename"]: row for row in csv.DictReader(fh)}
     counts = {"added": 0, "duplicates": 0, "skipped": 0}
     for pdf in sorted(p for p in folder.iterdir() if p.suffix.lower() in {".pdf", ".p7m"}):
+        logger.info("Importing %s", pdf.name)
         row = meta.get(pdf.name, {})
         published = row.get("published_at") or None
         try:
@@ -75,6 +79,7 @@ def run_ingest(db: Database, settings: Settings, slug: str, limit: int | None = 
         if db.has_source_url(remote.url):
             counts["duplicates"] += 1
             continue
+        logger.info("Downloading %s", remote.url)
         try:
             data = adapter.download(remote)
             _, created = ingest_bytes(

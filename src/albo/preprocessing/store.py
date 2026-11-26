@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import time
 
 from ..config import Settings
 from ..db import Database
 from .extract import extract_pdf
 from .normalize import NORMALIZER_VERSION, normalize_text
 from .pseudonymise import pseudonymise
+
+logger = logging.getLogger(__name__)
 
 
 def preprocess_document(db: Database, settings: Settings, doc_id: str) -> str:
@@ -51,6 +55,11 @@ def preprocess_document(db: Database, settings: Settings, doc_id: str) -> str:
 
 def preprocess_all(db: Database, settings: Settings, force: bool = False) -> dict[str, int]:
     results = {"new": 0, "unchanged": 0, "error": 0}
-    for doc in db.documents_to_preprocess(force=force):
+    docs = db.documents_to_preprocess(force=force)
+    logger.info("Preprocessing %d documents", len(docs))
+    started = time.monotonic()
+    for i, doc in enumerate(docs, 1):
+        logger.info("[%d/%d] %s: extracting text from %s", i, len(docs), doc["doc_id"], doc["raw_path"])
         results[preprocess_document(db, settings, doc["doc_id"])] += 1
+    logger.info("Preprocessing finished in %.1fs: %s", time.monotonic() - started, results)
     return results

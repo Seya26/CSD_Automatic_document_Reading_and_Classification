@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import io
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import pymupdf
 
 from ..config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class OCRUnavailable(RuntimeError):
@@ -46,9 +49,11 @@ def extract_pdf(path: Path | str, settings: Settings) -> Extraction:
         for page in doc:
             text = page.get_text("text", sort=True)
             if len(text.strip()) >= settings.ocr_min_chars_per_page or not ocr_ok:
+                logger.debug("page %d: text layer (%d chars)", page.number + 1, len(text.strip()))
                 pages.append(text)
                 methods.append("text")
                 continue
+            logger.info("page %d: only %d chars in the text layer, running OCR...", page.number + 1, len(text.strip()))
             try:
                 ocr_text = ocr_page(page, settings.ocr_lang)
             except OCRUnavailable as exc:
