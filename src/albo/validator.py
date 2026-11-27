@@ -11,7 +11,7 @@ from datetime import date
 from rapidfuzz import fuzz
 
 from .schema import LLMExtraction
-from .taxonomy import CORE_TYPES, DocType, map_declared_type
+from .taxonomy import CORE_TYPES, FIELDS, DETAIL_FIELDS, record_fields, DocType, map_declared_type
 from .values import all_dates, norm_municipality, norm_number, norm_text, number_tokens, parse_date
 
 
@@ -62,10 +62,14 @@ def value_supported(name: str, value: str, evidence: str) -> bool:
     """Is the extracted value actually contained in its own evidence excerpt?
     (An excerpt can exist in the text and still not say what the model claims.)
     Unparsable numbers/dates return True: they are reported as `bad_format` instead."""
+    if name == "classifica":
+        label = r"\bclassifica"
+        return bool(re.search(label + r"\s*[:°º.]?\s*" + re.escape(value.strip()) + r"(?![\w./-])",
+                              evidence, re.IGNORECASE))
     if name == "number":
         wanted = [int(p) for p in norm_number(value).split("/") if p]
         return not wanted or all(w in number_tokens(evidence) for w in wanted)
-    if name == "date":
+    if name in ("date", "valida_dal", "valida_al"):
         iso = parse_date(value)
         return iso is None or iso in all_dates(evidence)
     v, e = norm_text(value), norm_text(evidence)
@@ -92,10 +96,13 @@ def cites_other_act(date_evidence: str, number: str | None) -> bool:
 
 def canonicalize(extraction: LLMExtraction) -> LLMExtraction:
     """Clean values in place: trimmed strings, ISO dates when parsable."""
-    for name in ("municipality", "number", "date", "subject"):
+    for name in (*FIELDS, *sorted(DETAIL_FIELDS)):
         field = getattr(extraction, name)
         if field.value is not None:
-            field.value = re.sub(r"\s+", " ", field.value).strip() or None
+            if name in ("luoghi", "firmatari"):
+                field.value = "\n".join(line.strip() for line in field.value.splitlines() if line.strip()) or None
+            else:
+                field.value = re.sub(r"\s+", " ", field.value).strip() or None
         if field.evidence is not None:
             field.evidence = field.evidence.strip() or None
     if extraction.date.value:
@@ -131,12 +138,16 @@ def validate(extraction: LLMExtraction, text: str, *, municipality: str | None,
 
     # --- fields (not required for OTHER / UNCERTAIN) ---
     required = extraction.doc_type in CORE_TYPES
-    for name in ("municipality", "number", "date", "subject"):
+    for name in (*FIELDS, *sorted(DETAIL_FIELDS)):
         field = getattr(extraction, name)
         if field.value is None:
-            if required:
+            if required and name in FIELDS:
                 add(name, "missing_value", f"{name} is required for {extraction.doc_type.value} but was not found")
             continue
+        if name not in record_fields(extraction.doc_type):
+            add(name, "wrong_category", "Field does not belong to this category")
+        if name in ("valida_dal", "valida_al") and not parse_date(field.value):
+            add(name, "bad_format", "Invalid validity date")
         if field.confidence < conf_threshold:
             add(name, "low_confidence", f"Confidence {field.confidence:.2f} < {conf_threshold}")
         if not field.evidence:
@@ -145,6 +156,22 @@ def validate(extraction: LLMExtraction, text: str, *, municipality: str | None,
             add(name, "evidence_not_found", "Evidence not found in the text (possible hallucination)")
         elif not value_supported(name, field.value, field.evidence):
             add(name, "value_not_in_evidence", "The value is not contained in its evidence excerpt")
+
+    for name in ("firmatario", "responsabile_procedimento", "firmatari"):
+        value = getattr(extraction, name).value or ""
+        if "[NOME]" in value.upper():
+            add(name, "redacted_name", "Verify the masked name in the original PDF")
+    if extraction.doc_type == DocType.ORDINANCE and not extraction.responsabile_procedimento.value:
+        if re.search(r"responsabile\s+del\s+procedimento\s*:\s*(?:dott[.\w]*\s+)?\[NOME\]", text, re.I):
+            add("responsabile_procedimento", "redacted_name", "Verify the procedure manager in the original PDF")
+    start, end = parse_date(extraction.valida_dal.value), parse_date(extraction.valida_al.value)
+    if start and end and start > end:
+        add("valida_al", "invalid_range", "Validity ends before it starts")
+    for name in ("luoghi", "firmatari"):
+        value = getattr(extraction, name).value or ""
+        parts = (part for line in value.splitlines() for part in (line.split("|") if name == "firmatari" else [line]))
+        if any(norm_text(part) not in text_norm for part in parts if part.strip()):
+            add(name, "value_not_in_text", "Location, signer or role missing from source text")
 
     # --- format / consistency checks ---
     number, date_, subject, muni = extraction.number, extraction.date, extraction.subject, extraction.municipality

@@ -1,0 +1,30 @@
+\set ON_ERROR_STOP on
+SELECT 'CREATE DATABASE adrc TEMPLATE template0 TABLESPACE pg_default'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'adrc') \gexec
+\connect adrc
+SELECT to_regnamespace('archivio_comunale') IS NULL AS installare \gset
+\if :installare
+    \ir schema.sql
+\else
+    \ir migra_numeri_delibere.sql
+\endif
+
+DO $$
+DECLARE
+    tabella text;
+BEGIN
+    FOREACH tabella IN ARRAY ARRAY[
+        'email', 'email_allegati', 'file_originali', 'documenti',
+        'ordinanze', 'determinazioni', 'delibere'
+    ] LOOP
+        IF NOT EXISTS (
+            SELECT FROM pg_catalog.pg_tables
+            WHERE schemaname = 'archivio_comunale' AND tablename = tabella
+        ) THEN
+            RAISE EXCEPTION 'Tabella mancante: %', tabella;
+        END IF;
+    END LOOP;
+    PERFORM 'archivio_comunale.acquisisci_file(bytea,text,text)'::regprocedure;
+END
+$$;
+\echo Database adrc pronto. Verificate le sette tabelle e la funzione acquisisci_file.

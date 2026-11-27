@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v5"
 
 SYSTEM_PROMPT = """You analyse Italian municipal acts published on an albo pretorio (official notice board).
 For the document provided, call the tool `record_extraction` exactly once.
@@ -22,7 +22,20 @@ Choose the type from what the act IS, not from the documents it quotes: a determ
 
 Fields (use null when absent; never guess or infer a missing value):
 - municipality: the comune that issued the act, as written in the header (e.g. "Comune di Camerino").
-- number: the number of the act (e.g. "45" or "45/2025"). Not the protocol number, not a page number.
+- number: the number of the act (e.g. "45" or "45/2025"). Exclude proposal and document identifiers. Not the protocol number, not a page number.
+- For DELIBERATION, number is the deliberation number. Extract classifica as printed (e.g. "6.5"),
+  organo_deliberante from the adopting body, and esito_votazione from the main vote using its exact wording.
+  Return null for these three fields for other categories or if absent.
+- For DETERMINATION, number is the determination number, as labelled in the act header. Extract ufficio_responsabile
+  from the issuing service/office in the header, and firmatario as the actual name in the final signature block.
+  Do not confuse the signatory with the procedure manager, cited persons or the digital certificate provider.
+- For ORDINANCE, number is numero_ordinanza. Extract organo_emittente from the office printed immediately
+  below the municipality. Extract operative locations (luoghi), validity dates and prescriptions from ORDINA.
+  Preserve which location, times and exceptions accompany each measure. Separate locations with newlines.
+  Extract the actual firmatario and the explicitly identified responsabile_procedimento separately.
+- For DELIBERATION, extract all final firmatari, one per line as name | role, using only explicit roles.
+- Return null for a person whose name is masked as [NOME].
+- Only populate fields relevant to the current category. Keep optional fields null when absent.
 - date: the date of the act (adoption or signature), as written in the document. Not the publication date.
 - subject: the "Oggetto" of the act, verbatim, with line breaks collapsed.
 

@@ -53,10 +53,11 @@ def cmd_preprocess(args: argparse.Namespace) -> None:
 
 
 def cmd_classify(args: argparse.Namespace) -> None:
-    from .llm import OllamaClient, classify_all
+    from .llm import classify_all
+    from .llm.client import create_client
 
     db, settings = _db()
-    client = OllamaClient(settings.ollama_model, settings.ollama_base_url, settings.ollama_num_ctx)
+    client = create_client(settings)
     print(classify_all(db, settings, client, force=args.force, limit=args.limit))
 
 
@@ -97,11 +98,66 @@ def cmd_export_ground_truth(args: argparse.Namespace) -> None:
     print(f"{len(rows)} annotations written to {args.out}")
 
 
+def cmd_archive(args: argparse.Namespace) -> None:
+    from .postgres_archive import archive
+
+    db, _ = _db()
+    archive(db, args.check)
+
+
+def cmd_process_file(args: argparse.Namespace) -> None:
+    from .ingestion.ingest import ingest_bytes
+    from .llm.client import create_client
+    from .llm.classify import classify_document
+    from .llm.prompts import PROMPT_VERSION
+    from .postgres_archive import archive
+    from .preprocessing.store import preprocess_document
+
+    db, settings = _db()
+    path = Path(args.pdf)
+    doc_id, created = ingest_bytes(db, settings, path.read_bytes(), municipality=args.municipality, original_name=path.name)
+    print(f"1/4 {path.name} ({doc_id}): " + ("acquisito" if created else "già presente"))
+
+    def raise_stage_error(stage: str) -> None:
+        entry = db.one("SELECT message FROM processing_log WHERE doc_id=? AND stage=? AND status='error'"
+                       " ORDER BY id DESC LIMIT 1", (doc_id, stage))
+        raise RuntimeError(f"{stage}: {entry['message'] if entry else 'errore'}")
+
+    if preprocess_document(db, settings, doc_id) == "error":
+        raise_stage_error("preprocess")
+    current = db.current_text(doc_id)
+    print(f"2/4 {current['extraction_method']}: {current['n_pages']} pagine, {current['n_chars']} caratteri")
+    prediction = db.latest_prediction(doc_id)
+    if (prediction and prediction["text_version"] == current["version"]
+            and prediction["model"] == settings.classification_model and prediction["prompt_version"] == PROMPT_VERSION):
+        print("3/4 Classificazione già disponibile")
+    else:
+        client = create_client(settings)
+        print(f"3/4 Classificazione con {client.model}...", flush=True)
+        if classify_document(db, settings, client, doc_id) == "error":
+            raise_stage_error("classify")
+        prediction = db.latest_prediction(doc_id)
+    record = json.loads(prediction["record_json"])
+    print(f"Proposta AI: {record['doc_type']} ({prediction['status']})")
+    from .taxonomy import record_fields
+    for field in record_fields(record["doc_type"]):
+        print(f"  {field}: {record.get(field, {}).get('value')}")
+    print("4/4 Archiviazione del PDF in PostgreSQL...", flush=True)
+    archive(db, doc_id=doc_id)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="albo", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("stats", help="counts per pipeline stage").set_defaults(func=cmd_stats)
+    p = sub.add_parser("process-file", help="process and archive one local PDF")
+    p.add_argument("pdf", type=Path)
+    p.add_argument("--municipality", required=True, help="comune di provenienza")
+    p.set_defaults(func=cmd_process_file)
+    p = sub.add_parser("archive-postgres", help="archive originals and approved records in PostgreSQL")
+    p.add_argument("--check", action="store_true", help="check the connection and schema only")
+    p.set_defaults(func=cmd_archive)
 
     p = sub.add_parser("export-schema", help="write the JSON Schema of the output record")
     p.add_argument("--out", default="config/output_record.schema.json")
@@ -144,7 +200,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     try:
         args.func(args)
-    except (RuntimeError, KeyError, FileNotFoundError) as exc:
+    except (RuntimeError, KeyError, OSError, ValueError) as exc:
         message = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
         print(f"error: {message}", file=sys.stderr)
         sys.exit(1)

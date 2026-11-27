@@ -5,6 +5,7 @@ import csv
 import hashlib
 import re
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from ..config import Settings
 from ..db import Database
@@ -19,7 +20,7 @@ def slugify(name: str) -> str:
 
 def ingest_bytes(db: Database, settings: Settings, data: bytes, *, municipality: str,
                  declared_type: str | None = None, published_at: str | None = None,
-                 source_url: str | None = None) -> tuple[str, bool]:
+                 source_url: str | None = None, original_name: str | None = None) -> tuple[str, bool]:
     """Store one PDF, or the PDF inside a signed .p7m. Returns (doc_id, created);
     created is False for a duplicate. The hash is computed on the PDF, so the same
     act published both as PDF and as P7M is stored once."""
@@ -34,6 +35,7 @@ def ingest_bytes(db: Database, settings: Settings, data: bytes, *, municipality:
     created = db.add_document(
         doc_id=doc_id, sha256=sha, municipality=municipality, declared_type=declared_type,
         published_at=published_at, source_url=source_url, raw_path=str(path),
+        original_name=original_name if original_name != path.name else None,
     )
     if created:
         path.write_bytes(data)
@@ -55,7 +57,7 @@ def ingest_local(db: Database, settings: Settings, folder: Path, municipality: s
         published = row.get("published_at") or None
         try:
             _, created = ingest_bytes(
-                db, settings, pdf.read_bytes(), municipality=municipality,
+                db, settings, pdf.read_bytes(), municipality=municipality, original_name=pdf.name,
                 declared_type=row.get("declared_type") or None,
                 published_at=parse_date(published) or published,
                 source_url=row.get("source_url") or None,
@@ -77,9 +79,11 @@ def run_ingest(db: Database, settings: Settings, slug: str, limit: int | None = 
             continue
         try:
             data = adapter.download(remote)
+            filename = Path(unquote(urlsplit(remote.url).path)).name
             _, created = ingest_bytes(
                 db, settings, data, municipality=adapter.name, declared_type=remote.declared_type,
                 published_at=remote.published_at, source_url=remote.url,
+                original_name=filename if filename.lower().endswith((".pdf", ".p7m")) else None,
             )
             counts["added" if created else "duplicates"] += 1
         except ValueError as exc:  # not a PDF, too large

@@ -9,6 +9,7 @@ x-albo-env: &albo-env
   OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-8192}
   ALBO_CONF_THRESHOLD: ${ALBO_CONF_THRESHOLD:-0.85}
   ALBO_PSEUDONYMISE: ${ALBO_PSEUDONYMISE:-1}
+  ALBO_OLLAMA_READ_TIMEOUT_S: ${ALBO_OLLAMA_READ_TIMEOUT_S:-1800}
   ALBO_DATA_DIR: /app/data
   ALBO_CONFIG_DIR: /app/config
 
@@ -17,7 +18,35 @@ x-albo-volumes: &albo-volumes
   - ./config:/app/config    # municipalities.yaml, fewshot.json: editable without rebuilding
 
 services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: adrc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-adrc-local-dev}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "adrc"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  model-init:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ['ollama show "$$OLLAMA_MODEL" >/dev/null 2>&1 || ollama pull "$$OLLAMA_MODEL"']
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   ollama:
+    profiles: ["ollama"]
     image: ollama/ollama:latest
     volumes:
       - ollama:/root/.ollama
@@ -36,9 +65,6 @@ services:
       - "127.0.0.1:8501:8501"
     environment: *albo-env
     volumes: *albo-volumes
-    depends_on:
-      ollama:
-        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
@@ -49,13 +75,25 @@ services:
   pipeline:
     build: .
     image: albo-pipeline
-    profiles: ["tools"]          # not started by `docker compose up`
+    profiles: ["tools", "${ALBO_LLM_PROVIDER:-ollama}"]
     entrypoint: ["python", "-m", "albo"]
-    environment: *albo-env
+    environment:
+      <<: *albo-env
+      ALBO_LLM_PROVIDER: ${ALBO_LLM_PROVIDER:-ollama}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      PGHOST: postgres
+      PGDATABASE: adrc
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-adrc-local-dev}
     volumes: *albo-volumes
     depends_on:
-      ollama:
+      postgres:
         condition: service_healthy
+      model-init:
+        condition: service_completed_successfully
+        required: false
 
 volumes:
+  postgres-data:
   ollama:

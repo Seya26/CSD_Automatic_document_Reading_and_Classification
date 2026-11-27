@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS documents (
     published_at TEXT,
     source_url TEXT,
     raw_path TEXT NOT NULL,
+    original_name TEXT,
     ingested_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS text_versions (
@@ -96,6 +97,9 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.conn() as c:
             c.executescript(SCHEMA)
+            c.execute("BEGIN IMMEDIATE")
+            if not any(row["name"] == "original_name" for row in c.execute("PRAGMA table_info(documents)")):
+                c.execute("ALTER TABLE documents ADD COLUMN original_name TEXT")
 
     @contextmanager
     def conn(self) -> Iterator[sqlite3.Connection]:
@@ -127,16 +131,21 @@ class Database:
     # ---- documents -------------------------------------------------
     def add_document(self, *, doc_id: str, sha256: str, municipality: str, raw_path: str,
                      declared_type: str | None = None, published_at: str | None = None,
-                     source_url: str | None = None) -> bool:
+                     source_url: str | None = None, original_name: str | None = None) -> bool:
         """Insert a document; return False if the same file (sha256) is already stored."""
-        if self.one("SELECT 1 FROM documents WHERE sha256 = ?", (sha256,)):
+        with self.conn() as c:
+            result = c.execute(
+                "INSERT INTO documents (doc_id, sha256, municipality, declared_type, published_at,"
+                " source_url, raw_path, ingested_at, original_name) VALUES (?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(sha256) DO NOTHING",
+                (doc_id, sha256, municipality, declared_type, published_at, source_url, raw_path, now(), original_name),
+            )
+            if result.rowcount:
+                return True
+            if original_name:
+                c.execute("UPDATE documents SET original_name=? WHERE sha256=? AND original_name IS NULL",
+                          (original_name, sha256))
             return False
-        self.run(
-            "INSERT INTO documents (doc_id, sha256, municipality, declared_type, published_at,"
-            " source_url, raw_path, ingested_at) VALUES (?,?,?,?,?,?,?,?)",
-            (doc_id, sha256, municipality, declared_type, published_at, source_url, raw_path, now()),
-        )
-        return True
 
     def get_document(self, doc_id: str) -> sqlite3.Row | None:
         return self.one("SELECT * FROM documents WHERE doc_id = ?", (doc_id,))

@@ -126,3 +126,10 @@ def test_date_from_cited_act_is_flagged():
                       declared_type=None, conf_threshold=0.85)
     assert ("date", "date_from_cited_act") in codes(result)
     assert ("date", "date_from_cited_act") not in codes(run(good()))
+
+
+def test_delibera_fields_require_their_own_evidence():
+    from albo.validator import value_supported
+
+    assert value_supported("classifica", "6.5", "Classifica 6.5")
+    assert not value_supported("classifica", "6", "Classifica 6.5")

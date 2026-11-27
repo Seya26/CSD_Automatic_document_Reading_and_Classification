@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from .taxonomy import DocType
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.4"
 
 
 class FieldValue(BaseModel):
@@ -26,6 +26,18 @@ class LLMExtraction(BaseModel):
     number: FieldValue
     date: FieldValue
     subject: FieldValue
+    ufficio_responsabile: FieldValue = Field(default_factory=FieldValue)
+    firmatario: FieldValue = Field(default_factory=FieldValue)
+    organo_emittente: FieldValue = Field(default_factory=FieldValue)
+    luoghi: FieldValue = Field(default_factory=FieldValue)
+    valida_dal: FieldValue = Field(default_factory=FieldValue)
+    valida_al: FieldValue = Field(default_factory=FieldValue)
+    prescrizioni: FieldValue = Field(default_factory=FieldValue)
+    responsabile_procedimento: FieldValue = Field(default_factory=FieldValue)
+    firmatari: FieldValue = Field(default_factory=FieldValue)
+    classifica: FieldValue = Field(default_factory=FieldValue)
+    organo_deliberante: FieldValue = Field(default_factory=FieldValue)
+    esito_votazione: FieldValue = Field(default_factory=FieldValue)
 
 
 class Provenance(BaseModel):
@@ -72,10 +84,25 @@ EXTRACTION_TOOL = {
             "municipality": _field_schema("Municipality that issued the act, as written in the header"),
             "number": _field_schema("Number of the act (not the protocol or page number)"),
             "date": _field_schema("Date of the act (adoption/signature), as written; not the publication date"),
+            "ufficio_responsabile": _field_schema("Determinations only: issuing office/service in the header."),
+            "firmatario": _field_schema("Determinations and ordinances: actual signatory name in the signature block, not the certificate provider or a cited person."),
+            "classifica": _field_schema("Deliberations only: exact archival classification code following Classifica, preserving punctuation."),
+            "organo_deliberante": _field_schema("Deliberations only: adopting assembly, verbatim from the act."),
+            "esito_votazione": _field_schema("Deliberations only: exact wording of the main adoption vote, excluding separate votes on immediate enforceability."),
+            "organo_emittente": _field_schema("Ordinances: office directly below the municipality in the header."),
+            "luoghi": _field_schema("Ordinances: one complete operative location per line, including street segments."),
+            "valida_dal": _field_schema("Ordinances: explicit first operative date, ISO YYYY-MM-DD."),
+            "valida_al": _field_schema("Ordinances: explicit last operative date, ISO YYYY-MM-DD."),
+            "prescrizioni": _field_schema("Ordinances: operative measures including their locations, times and exceptions."),
+            "responsabile_procedimento": _field_schema("Ordinances: person explicitly named as responsabile del procedimento."),
+            "firmatari": _field_schema("Deliberations: one actual signer per line, in the format name | role. Omit the separator if role is absent."),
             "subject": _field_schema("The 'Oggetto' of the act, verbatim"),
         },
         "required": [
             "doc_type", "type_evidence", "type_confidence",
+            "ufficio_responsabile", "firmatario", "classifica", "organo_deliberante", "esito_votazione",
+            "organo_emittente", "luoghi", "valida_dal", "valida_al", "prescrizioni",
+            "responsabile_procedimento", "firmatari",
             "municipality", "number", "date", "subject",
         ],
     },

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 
-from ..config import Settings
+from ..config import Settings, resolve_raw_pdf
 from ..db import Database
 from .extract import extract_pdf
 from .normalize import NORMALIZER_VERSION, normalize_text
@@ -16,7 +16,7 @@ def preprocess_document(db: Database, settings: Settings, doc_id: str) -> str:
     if doc is None:
         raise KeyError(doc_id)
     try:
-        extraction = extract_pdf(doc["raw_path"], settings)
+        extraction = extract_pdf(resolve_raw_pdf(doc["raw_path"], settings.raw_dir), settings)
         text = normalize_text(extraction.text)
         counts: dict[str, int] = {}
         if settings.pseudonymise:

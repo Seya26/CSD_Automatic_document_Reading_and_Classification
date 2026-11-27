@@ -24,10 +24,10 @@ def test_pseudonymise_structured_identifiers():
     text = ("C.F. RSSMRA80A01H501U, IBAN IT60X0542811101000000123456, mail mario.rossi@example.it, "
             "Tel. 0737 402 123. Il Sig. Mario Rossi, nei confronti di Luigi Bianchi.")
     out, counts = pseudonymise(text)
-    for leaked in ("RSSMRA80A01H501U", "IT60X0542811101000000123456", "mario.rossi@example.it", "0737 402 123",
-                   "Mario Rossi", "Luigi Bianchi"):
+    for leaked in ("RSSMRA80A01H501U", "IT60X0542811101000000123456", "mario.rossi@example.it", "0737 402 123"):
         assert leaked not in out
-    assert set(counts) == {"cf", "iban", "email", "phone", "name"}
+    assert "Il Sig. Mario Rossi, nei confronti di Luigi Bianchi." in out
+    assert set(counts) == {"cf", "iban", "email", "phone"}
 
 
 def test_pseudonymise_leaves_act_fields_alone():

@@ -69,6 +69,28 @@ GROUND_TRUTH = {
 }
 
 
+def test_process_file_limits_work_to_selected_pdf(env, tmp_path, monkeypatch):
+    from albo.cli import main
+
+    settings, db = env
+    folder = tmp_path / "uploads"
+    folder.mkdir()
+    path = make_pdf(folder / "delibera.pdf", DOCS["d1"][2])
+    make_pdf(folder / "altro.pdf", DOCS["d2"][2])
+    ingest_local(db, settings, folder, CAMERINO)
+    assert {doc["original_name"] for doc in db.list_documents()} == {"delibera.pdf", "altro.pdf"}
+    db.run("UPDATE documents SET original_name=NULL")  # previously imported PDFs
+    archived = []
+    monkeypatch.setattr("albo.llm.client.OllamaClient", lambda *args: FakeClient(fake_model))
+    monkeypatch.setattr("albo.postgres_archive.archive", lambda db, *, doc_id: archived.append(doc_id))
+    main(["process-file", str(path), "--municipality", CAMERINO])
+    assert len(archived) == 1
+    assert db.get_document(archived[0])["original_name"] == "delibera.pdf"
+    assert db.latest_prediction(archived[0])["status"] == "auto_accepted"
+    assert len(db.q("SELECT id FROM predictions")) == 1
+    assert len(db.q("SELECT id FROM text_versions")) == 1
+
+
 def build(env, tmp_path):
     settings, db = env
     ids = {}

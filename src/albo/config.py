@@ -3,7 +3,18 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+
+
+def resolve_raw_pdf(raw_path: str, raw_dir: Path) -> Path:
+    """Resolve an archived PDF after moving the shared data folder between hosts."""
+    original = Path(raw_path)
+    if original.is_file():
+        return original
+    parts = PureWindowsPath(raw_path).parts
+    if len(parts) >= 3 and parts[-3] == "raw" and ".." not in parts[-2:]:
+        return raw_dir.joinpath(*parts[-2:])
+    return original
 
 
 def _bool(name: str, default: bool) -> bool:
@@ -28,6 +39,16 @@ class Settings:
     request_delay_s: float
     max_download_mb: int
     user_agent: str
+    llm_provider: str = "ollama"
+    gemini_model: str = "gemini-3.5-flash-lite"
+
+    @property
+    def classification_model(self) -> str:
+        if self.llm_provider == "gemini":
+            return self.gemini_model
+        if self.llm_provider == "ollama":
+            return self.ollama_model
+        raise ValueError("ALBO_LLM_PROVIDER deve essere gemini oppure ollama")
 
     @property
     def municipalities_file(self) -> Path:
@@ -46,6 +67,8 @@ def get_settings() -> Settings:
         db_path=Path(os.environ.get("ALBO_DB_PATH", data_dir / "albo.db")).resolve(),
         raw_dir=data_dir / "raw",
         config_dir=config_dir,
+        llm_provider=os.environ.get("ALBO_LLM_PROVIDER", "ollama").strip().lower(),
+        gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
         ollama_model=os.environ.get("OLLAMA_MODEL", "qwen3:4b"),
         ollama_base_url=os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
         ollama_num_ctx=int(os.environ.get("OLLAMA_NUM_CTX", "8192")),

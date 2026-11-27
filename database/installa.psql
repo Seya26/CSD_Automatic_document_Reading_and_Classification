@@ -1,0 +1,2 @@
+-- Alias per chi utilizza ancora il nome precedente del comando di installazione.
+\ir crea_adrc.psql

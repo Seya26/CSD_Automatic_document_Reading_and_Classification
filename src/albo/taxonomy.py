@@ -17,6 +17,26 @@ CORE_TYPES = (DocType.DELIBERATION, DocType.DETERMINATION, DocType.ORDINANCE)
 
 FIELDS = ("municipality", "number", "date", "subject")
 
+DELIBERATION_FIELDS = ("classifica", "organo_deliberante", "esito_votazione", "firmatari")
+
+DETERMINATION_FIELDS = ("ufficio_responsabile", "firmatario")
+
+ORDINANCE_FIELDS = ("organo_emittente", "luoghi", "valida_dal", "valida_al", "prescrizioni",
+                    "firmatario", "responsabile_procedimento")
+DETAIL_FIELDS = set(DELIBERATION_FIELDS + DETERMINATION_FIELDS + ORDINANCE_FIELDS)
+
+
+def record_fields(doc_type: str) -> tuple[str, ...]:
+    common = FIELDS
+    if doc_type == DocType.DELIBERATION:
+        return (*common, *DELIBERATION_FIELDS)
+    if doc_type == DocType.DETERMINATION:
+        return (*common, *DETERMINATION_FIELDS)
+    if doc_type == DocType.ORDINANCE:
+        return (*common, *ORDINANCE_FIELDS)
+    return common
+
+
 # Keywords found in the type label declared by the notice board.
 _DECLARED_KEYWORDS = (
     ("deliber", DocType.DELIBERATION),

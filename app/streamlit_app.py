@@ -8,15 +8,22 @@ import pymupdf
 import pandas as pd
 import streamlit as st
 
-from albo.config import get_settings
+from albo.config import get_settings, resolve_raw_pdf
 from albo.db import Database
 from albo.evaluation import evaluate
 from albo.review_queue import apply_review, final_records
-from albo.taxonomy import FIELDS, DocType
+from albo.taxonomy import FIELDS, DocType, record_fields
 
 st.set_page_config(page_title="Albo – validazione", page_icon="📄", layout="wide")
 
-LABELS = {"municipality": "Comune", "number": "Numero", "date": "Data dell'atto", "subject": "Oggetto"}
+LABELS = {"municipality": "Comune", "number": "Numero atto",
+          "ufficio_responsabile": "Ufficio responsabile", "firmatario": "Firmatario", "classifica": "Classifica", "organo_deliberante": "Organo deliberante", "esito_votazione": "Esito votazione", "date": "Data dell'atto", "subject": "Oggetto"}
+LABELS.update({
+    "organo_emittente": "Organo emittente", "luoghi": "Luoghi (uno per riga)",
+    "valida_dal": "Valida dal", "valida_al": "Valida al", "prescrizioni": "Prescrizioni",
+    "responsabile_procedimento": "Responsabile del procedimento",
+    "firmatari": "Firmatari (uno per riga: nome | ruolo)",
+})
 TYPES = [t.value for t in DocType]
 
 
@@ -53,7 +60,7 @@ def document_view(db: Database, doc_id: str, snippets: list[str | None] = ()) ->
     )
     show_text(db.current_text(doc_id)["text"], snippets)
     with st.expander("Mostra il PDF originale"):
-        show_pdf(doc["raw_path"], doc_id)
+        show_pdf(str(resolve_raw_pdf(doc["raw_path"], get_settings().raw_dir)), doc_id)
 
 
 # ---------------------------------------------------------------- review
@@ -79,21 +86,21 @@ def page_review(db: Database, reviewer: str) -> None:
 
     left, right = st.columns([3, 2])
     with left:
-        evidence = [record.get("type_evidence")] + [record[f]["evidence"] for f in FIELDS]
+        evidence = [record.get("type_evidence")] + [record.get(f, {}).get("evidence") for f in record_fields(record["doc_type"])]
         document_view(db, doc_id, evidence)
     with right:
         st.subheader("Verifica")
         for issue in issues:
             st.warning(f"**{issue['field']}** — {issue['message']}", icon="⚠️")
+        doc_type = st.selectbox("Tipo di atto", TYPES, index=TYPES.index(record["doc_type"]), key=f"{doc_id}_type")
         with st.form(f"review_{doc_id}"):
-            doc_type = st.selectbox("Tipo di atto", TYPES, index=TYPES.index(record["doc_type"]), key=f"{doc_id}_type")
             st.caption(f"confidenza {record['type_confidence']:.2f}"
                        + (f" · evidenza: «{record['type_evidence']}»" if record.get("type_evidence") else ""))
             values: dict[str, str] = {}
-            for name in FIELDS:
-                field = record[name]
+            for name in record_fields(doc_type):
+                field = record.get(name, {"value": None, "evidence": None, "confidence": 0.0})
                 label = ("⚠️ " if name in record["fields_to_review"] else "") + LABELS[name]
-                widget = st.text_area if name == "subject" else st.text_input
+                widget = st.text_area if name in ("subject", "luoghi", "prescrizioni", "firmatari") else st.text_input
                 values[name] = widget(label, field["value"] or "", key=f"{doc_id}_{name}")
                 st.caption(f"confidenza {field['confidence']:.2f}"
                            + (f" · evidenza: «{field['evidence']}»" if field["evidence"] else ""))
@@ -108,7 +115,7 @@ def page_review(db: Database, reviewer: str) -> None:
                 action = "discard"
             else:
                 changed = doc_type != record["doc_type"] or any(
-                    (values[f].strip() or None) != record[f]["value"] for f in FIELDS
+                    (values[f].strip() or None) != record.get(f, {}).get("value") for f in values
                 )
                 action = "correct" if changed else "approve"
             apply_review(db, doc_id=doc_id, prediction_id=row["id"], reviewer=reviewer, action=action,
@@ -143,7 +150,7 @@ def page_annotate(db: Database, annotator: str) -> None:
             st.caption("UNCERTAIN non è ammesso nella ground truth: se il tipo è davvero dubbio, discutine con il gruppo.")
             values, evidence = {}, {}
             for name in FIELDS:
-                widget = st.text_area if name == "subject" else st.text_input
+                widget = st.text_area if name in ("subject", "luoghi", "prescrizioni", "firmatari") else st.text_input
                 values[name] = widget(LABELS[name], (existing[name] if existing else "") or "", key=f"a_{doc_id}_{name}")
                 evidence[name] = st.text_input(f"Evidenza · {LABELS[name].lower()}", evidence_old.get(name, ""),
                                                key=f"a_{doc_id}_{name}_ev")
